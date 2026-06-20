@@ -207,6 +207,30 @@ def _parse_hhmm(s):
         return None
 
 
+def _norm_hhmm(s):
+    """手入力の時刻を HH:MM に正規化。'902'/'9:2'/'09:02' などを受け付ける。1分単位対応。"""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if ":" in s:
+        parts = s.split(":")
+        try:
+            h, m = int(parts[0]), int(parts[1])
+        except Exception:
+            return s
+    else:
+        ds = "".join(ch for ch in s if ch.isdigit())
+        if len(ds) in (3, 4):
+            h, m = int(ds[:-2]), int(ds[-2:])
+        elif len(ds) in (1, 2):
+            h, m = int(ds), 0
+        else:
+            return s
+    if 0 <= h <= 23 and 0 <= m <= 59:
+        return f"{h:02d}:{m:02d}"
+    return s
+
+
 def calc_drop_minutes(start_hhmm, low_hhmm):
     # 値段が付いてから計測（寄り前は含めない）。start→low の経過分。
     a = _parse_hhmm(start_hhmm)
@@ -579,16 +603,19 @@ def page_input():
     mcols[1].metric("寄り後急落率", "—" if pod is None else f"{pod:.2f}%")
     mcols[2].metric("総急落率", "—" if tot is None else f"{tot:.2f}%")
 
-    # 時刻
-    _seed_time("drop_start_w", "09:00")
-    _seed_time("low_w", "09:05")
+    # 時刻（1分単位で直接入力。例: 09:02）
     c7, c8 = st.columns(2)
     with c7:
-        drop_start = st.time_input("急落開始時刻", key="drop_start_w")
+        drop_start_raw = st.text_input("急落開始時刻", value="09:00", key="drop_start_w",
+                                       placeholder="例: 09:02", max_chars=5)
     with c8:
-        low_time = st.time_input("安値時刻", key="low_w")
-    dmin = calc_drop_minutes(drop_start.strftime("%H:%M"), low_time.strftime("%H:%M"))
-    st.caption(f"⏱ 急落所要時間: {'—' if dmin is None else f'{dmin}分'}（値段が付いてからを計測）")
+        low_raw = st.text_input("安値時刻", value="09:05", key="low_w",
+                                placeholder="例: 09:06", max_chars=5)
+    drop_start_str = _norm_hhmm(drop_start_raw)
+    low_str = _norm_hhmm(low_raw)
+    dmin = calc_drop_minutes(drop_start_str, low_str)
+    st.caption(f"⏱ 急落所要時間: {'—' if dmin is None else f'{dmin}分'}"
+               f"（{drop_start_str or '—'}→{low_str or '—'}・1分単位／値段が付いてから）")
 
     st.divider()
     # 下げ止まりサイン
@@ -681,8 +708,8 @@ def page_input():
             "stock_code": code, "stock_name": stock_name,
             "prev_close": prev_close or None, "open_price": open_price or None,
             "pre_high": pre_high or None, "low_price": low_price or None,
-            "drop_start_time": drop_start.strftime("%H:%M"),
-            "low_time": low_time.strftime("%H:%M"),
+            "drop_start_time": drop_start_str,
+            "low_time": low_str,
             "bottoming_signs": signs,
             "sellout_eval": sellout_eval or "", "sellout_reason": sellout_reason,
             "entry_eval": entry_eval or "",
